@@ -1,65 +1,66 @@
-# =====================================================
-# ================== ADMIN PAGE =======================
-# =====================================================
+import streamlit as st
+import sqlite3
+import os
+from google import genai
 
-import pandas as pd
+st.title("🛒 Coty Admin Dashboard")
 
-st.sidebar.markdown("---")
-st.sidebar.title("🔐 Admin Panel")
+# --- Database ---
+conn = sqlite3.connect("orders.db", check_same_thread=False)
+cursor = conn.cursor()
 
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "1234")
-admin_password_input = st.sidebar.text_input("Weka Admin Password", type="password")
+# --- API ---
+API_KEY = os.environ.get("GEMINI_API_KEY_RENDER")
+client = genai.Client(api_key=API_KEY)
+MODEL = "gemini-2.5-flash"
 
-if admin_password_input == ADMIN_PASSWORD:
+# --- Show Orders ---
+st.subheader("Order Details")
+cursor.execute("SELECT * FROM orders ORDER BY id DESC")
+orders = cursor.fetchall()
+if not orders:
+    st.info("Hakuna order bado.")
+else:
+    for order in orders:
+        st.markdown(f"""
+**Order ID:** {order[0]}  
+**Jina:** {order[1]}  
+**Simu:** {order[2]}  
+**Location:** {order[3]}  
+**Bidhaa:** {order[4]}  
+**Idadi:** {order[5]}
+""")
+        st.divider()
 
-    st.sidebar.success("Umefanikiwa kuingia Admin")
-
-    st.title("📊 Coty Orders Dashboard")
-
-    conn = sqlite3.connect(DB_NAME)
-    df = pd.read_sql_query("SELECT * FROM orders ORDER BY id DESC", conn)
-    conn.close()
-
-    if df.empty:
-        st.info("Hakuna orders bado.")
+# --- Delete Orders ---
+st.subheader("Delete Order")
+delete_id = st.number_input("Enter Order ID to delete", min_value=1, step=1)
+if st.button("Delete Order"):
+    cursor.execute("SELECT * FROM orders WHERE id=?", (delete_id,))
+    check = cursor.fetchone()
+    if check:
+        cursor.execute("DELETE FROM orders WHERE id=?", (delete_id,))
+        conn.commit()
+        st.success(f"✅ Order ID {delete_id} deleted")
+        st.experimental_rerun()
     else:
+        st.error("❌ Order ID haipo")
 
-        # ================= STATS =================
-        st.subheader("📈 Order Statistics")
+# --- Send Message to AI ---
+st.subheader("Send Message to AI")
+admin_msg = st.text_area("Message for AI")
 
-        total_orders = len(df)
-        today_orders = len(df[df["created_at"].str.contains(datetime.now().strftime("%Y-%m-%d"))])
-
-        col1, col2 = st.columns(2)
-        col1.metric("Total Orders", total_orders)
-        col2.metric("Orders Today", today_orders)
-
-        st.markdown("---")
-
-        # ================= TABLE =================
-        st.subheader("📋 Orders List")
-        st.dataframe(df, use_container_width=True)
-
-        # ================= DOWNLOAD CSV =================
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="⬇️ Download Orders CSV",
-            data=csv,
-            file_name="coty_orders.csv",
-            mime="text/csv"
-        )
-
-        st.markdown("---")
-
-        # ================= DELETE ORDER =================
-        st.subheader("🗑️ Delete Order")
-
-        order_id_to_delete = st.number_input("Weka Order ID ya kufuta", min_value=1, step=1)
-
-        if st.button("Futa Order"):
-            conn = sqlite3.connect(DB_NAME)
-            c = conn.cursor()
-            c.execute("DELETE FROM orders WHERE id = ?", (order_id_to_delete,))
-            conn.commit()
-            conn.close()
-            st.success(f"Order ID {order_id_to_delete} imefutwa. Refresh page.")
+if st.button("Send to AI"):
+    if admin_msg.strip()=="":
+        st.error("Andika message kwanza")
+    else:
+        try:
+            response = client.models.generate_content(
+                model=MODEL,
+                contents=admin_msg,
+                config={"temperature":0.3}
+            ).text
+            st.success("AI Response:")
+            st.write(response)
+        except Exception as e:
+            st.error(f"Kosa la AI: {e}")
